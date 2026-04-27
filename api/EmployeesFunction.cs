@@ -9,73 +9,61 @@ namespace Api;
 
 public class EmployeesFunction
 {
-    private static readonly string DbPath = Path.Combine(
-        AppContext.BaseDirectory, "employees.db");
+    // Azure App Service deploys with a read-only wwwroot, which causes SQLite
+    // to fail with "database is locked" even for read-only queries (it can't
+    // create lock/journal files alongside the .db). Workaround: copy the .db
+    // to the writable temp directory on first use. Lazy<T> ensures it happens
+    // exactly once across all requests.
+    //
+    // This is a SQLite-specific quirk; real SQL Server doesn't have an
+    // equivalent issue, so this code disappears when we swap providers.
+    private static readonly Lazy<string> WritableDbPath = new(() =>
+    {
+        var source = Path.Combine(AppContext.BaseDirectory, "employees.db");
+        var dest = Path.Combine(Path.GetTempPath(), "employees.db");
+        File.Copy(source, dest, overwrite: true);
+        return dest;
+    });
 
     [Function("employees")]
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "employees")]
         HttpRequestData req)
     {
-        try
-        {
-            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-            var search = query["search"]?.Trim() ?? string.Empty;
+        var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+        var search = query["search"]?.Trim() ?? string.Empty;
 
-            var connectionString = $"Data Source={DbPath};Mode=ReadOnly";
+        var connectionString = $"Data Source={WritableDbPath.Value};Mode=ReadOnly";
 
-            await using var conn = new SqliteConnection(connectionString);
-            await conn.OpenAsync();
+        await using var conn = new SqliteConnection(connectionString);
+        await conn.OpenAsync();
 
-            const string sql = @"
-                SELECT id          AS Id,
-                       first_name  AS FirstName,
-                       last_name   AS LastName,
-                       email       AS Email,
-                       department  AS Department,
-                       title       AS Title,
-                       extension   AS Extension,
-                       location    AS Location,
-                       start_date  AS StartDate
-                FROM v_employee_directory
-                WHERE @search = ''
-                   OR first_name LIKE '%' || @search || '%'
-                   OR last_name  LIKE '%' || @search || '%'
-                   OR department LIKE '%' || @search || '%'
-                   OR title      LIKE '%' || @search || '%'
-                ORDER BY last_name, first_name;";
+        const string sql = @"
+            SELECT id          AS Id,
+                   first_name  AS FirstName,
+                   last_name   AS LastName,
+                   email       AS Email,
+                   department  AS Department,
+                   title       AS Title,
+                   extension   AS Extension,
+                   location    AS Location,
+                   start_date  AS StartDate
+            FROM v_employee_directory
+            WHERE @search = ''
+               OR first_name LIKE '%' || @search || '%'
+               OR last_name  LIKE '%' || @search || '%'
+               OR department LIKE '%' || @search || '%'
+               OR title      LIKE '%' || @search || '%'
+            ORDER BY last_name, first_name;";
 
-            var rows = await conn.QueryAsync<Employee>(sql, new { search });
+        var rows = await conn.QueryAsync<Employee>(sql, new { search });
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            await response.WriteStringAsync(JsonSerializer.Serialize(
-                rows,
-                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
-            return response;
-        }
-        catch (Exception ex)
-        {
-            // DEBUG ONLY — remove this once we know what's failing.
-            var diagnostics = new
-            {
-                Error = ex.GetType().FullName,
-                Message = ex.Message,
-                StackTrace = ex.StackTrace,
-                BaseDirectory = AppContext.BaseDirectory,
-                DbPath,
-                DbExists = File.Exists(DbPath),
-                DirectoryContents = Directory.Exists(AppContext.BaseDirectory)
-                    ? Directory.GetFiles(AppContext.BaseDirectory).Select(Path.GetFileName).ToArray()
-                    : Array.Empty<string?>()
-            };
-
-            var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            await response.WriteStringAsync(JsonSerializer.Serialize(diagnostics,
-                new JsonSerializerOptions { WriteIndented = true }));
-            return response;
-        }
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        response.Headers.Add("Content-Type", "application/json; charset=utf-8");
+        await response.WriteStringAsync(JsonSerializer.Serialize(
+            rows,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        return response;
     }
 }
 
