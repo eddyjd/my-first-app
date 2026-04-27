@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My First App</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      max-width: 600px;
+      margin: 4rem auto;
+      padding: 0 1rem;
+      color: #222;
+    }
+    button {
+      font-size: 1rem;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
+    }
+    #output {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #f4f4f4;
+      border-radius: 6px;
+      min-height: 2rem;
+      white-space: pre-wrap;
+    }
+    .muted { color: #888; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>My First App</h1>
+  <p class="muted">
+    Click the button to call the authenticated API.
+    You should see a greeting with your name from your Entra ID account.
+  </p>
+
+  <button id="callApi">Say Hello</button>
+  <a href="/.auth/logout" style="margin-left: 1rem;">Sign out</a>
+
+  <div id="output"></div>
+
+  <script>
+    const output = document.getElementById('output');
+    const button = document.getElementById('callApi');
+
+    button.addEventListener('click', async () => {
+      output.textContent = 'Calling API...';
+      try {
+        const res = await fetch('/api/hello');
+        if (!res.ok) {
+          output.textContent = `Error: ${res.status} ${res.statusText}`;
+          return;
+        }
+        const data = await res.json();
+        output.textContent = data.message;
+      } catch (err) {
+        output.textContent = `Network error: ${err.message}`;
+      }
+    });
+
+    // Also show who we're signed in as on page load.
+    (async () => {
+      try {
+        const res = await fetch('/.auth/me');
+        const payload = await res.json();
+        const principal = payload.clientPrincipal;
+        if (principal) {
+          const info = document.createElement('p');
+          info.className = 'muted';
+          info.textContent = `Signed in as: ${principal.userDetails}`;
+          document.body.insertBefore(info, output);
+        }
+      } catch { /* ignore */ }
+    })();
+  </script>
+</body>
+</html>

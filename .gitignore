@@ -1,0 +1,15 @@
+# Build output
+bin/
+obj/
+
+# Local settings (contains local-only values)
+local.settings.json
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
