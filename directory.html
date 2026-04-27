@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Office Directory</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #222;
+    }
+    h1 { margin-bottom: 0.25rem; }
+    .muted { color: #888; font-size: 0.9rem; }
+    .toolbar {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin: 1.5rem 0 1rem;
+    }
+    input[type="search"] {
+      flex: 1;
+      padding: 0.6rem 0.8rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      background: #f7f7f7;
+      font-weight: 600;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { background: #efefef; }
+    tbody tr:hover { background: #fafafa; }
+    .status {
+      padding: 1rem;
+      color: #888;
+      font-style: italic;
+    }
+    .nav { margin-bottom: 2rem; }
+    .nav a { margin-right: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">← Hello demo</a>
+    <a href="/.auth/logout">Sign out</a>
+  </div>
+
+  <h1>Office Directory</h1>
+  <p class="muted">Data served from the API, queried from a SQLite database.</p>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search by name, department, or title…" autofocus />
+    <span id="count" class="muted"></span>
+  </div>
+
+  <div id="output">
+    <p class="status">Loading…</p>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById('search');
+    const output = document.getElementById('output');
+    const countSpan = document.getElementById('count');
+
+    let currentSort = { column: 'lastName', direction: 'asc' };
+    let currentData = [];
+
+    async function fetchEmployees(search = '') {
+      output.innerHTML = '<p class="status">Loading…</p>';
+      try {
+        const url = search
+          ? `/api/employees?search=${encodeURIComponent(search)}`
+          : '/api/employees';
+        const res = await fetch(url);
+        if (!res.ok) {
+          output.innerHTML = `<p class="status">Error: ${res.status} ${res.statusText}</p>`;
+          return;
+        }
+        currentData = await res.json();
+        renderTable();
+      } catch (err) {
+        output.innerHTML = `<p class="status">Network error: ${err.message}</p>`;
+      }
+    }
+
+    function renderTable() {
+      if (currentData.length === 0) {
+        output.innerHTML = '<p class="status">No matches.</p>';
+        countSpan.textContent = '';
+        return;
+      }
+      countSpan.textContent = `${currentData.length} employee${currentData.length === 1 ? '' : 's'}`;
+
+      const sorted = [...currentData].sort((a, b) => {
+        const av = (a[currentSort.column] ?? '').toString().toLowerCase();
+        const bv = (b[currentSort.column] ?? '').toString().toLowerCase();
+        if (av < bv) return currentSort.direction === 'asc' ? -1 : 1;
+        if (av > bv) return currentSort.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      const headers = [
+        { key: 'lastName',   label: 'Name' },
+        { key: 'title',      label: 'Title' },
+        { key: 'department', label: 'Department' },
+        { key: 'email',      label: 'Email' },
+        { key: 'extension',  label: 'Ext.' },
+        { key: 'location',   label: 'Location' },
+        { key: 'startDate',  label: 'Started' },
+      ];
+
+      const thead = headers.map(h => `<th data-key="${h.key}">${h.label}</th>`).join('');
+      const tbody = sorted.map(e => `
+        <tr>
+          <td>${escapeHtml(e.firstName)} ${escapeHtml(e.lastName)}</td>
+          <td>${escapeHtml(e.title)}</td>
+          <td>${escapeHtml(e.department)}</td>
+          <td><a href="mailto:${escapeHtml(e.email)}">${escapeHtml(e.email)}</a></td>
+          <td>${escapeHtml(e.extension)}</td>
+          <td>${escapeHtml(e.location)}</td>
+          <td>${escapeHtml(e.startDate)}</td>
+        </tr>
+      `).join('');
+
+      output.innerHTML = `<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
+
+      output.querySelectorAll('th').forEach(th => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.key;
+          if (currentSort.column === key) {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSort = { column: key, direction: 'asc' };
+          }
+          renderTable();
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    // Debounced search.
+    let debounceTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchEmployees(searchInput.value), 250);
+    });
+
+    fetchEmployees();
+  </script>
+</body>
+</html>
